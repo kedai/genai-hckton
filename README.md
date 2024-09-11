@@ -1,4 +1,4 @@
-** Abstract **
+**Abstract**
 This GenAI app leverages Retrieval-Augmented Generation (RAG), LlamaIndex, and Streamlit to offer users an intuitive platform for querying real-time financial data from Bank Negara Malaysia (BNM). By combining these technologies, the app allows users to access live exchange rates, interest rates, gold prices, and financial alerts using natural language. It also offers interactive data visualizations and historical trends, making it useful for both the general public and financial professionals. This tool simplifies complex financial insights, providing a user-friendly interface for better decision-making and financial awareness. 
 
 **Introduction**
@@ -85,6 +85,7 @@ This GenAI app will significantly simplify how individuals and businesses intera
 
 ** Architecture **
 
+```
 +--------------------------+
 |     User Input            |
 | (Natural Language)  |
@@ -114,11 +115,11 @@ This GenAI app will significantly simplify how individuals and businesses intera
 | (Interactive Display|
 |   & Visualizations)  |
 +-------------------------+
-
-** To-do **
-Decide data to use
-Scrape data https://apikijangportal.bnm.gov.my/openapi
-Prompt construction if required
-Decide loader, vector db, embeddings 
-App development
+```
+**To-do**
+- Decide data to use
+- Scrape data https://apikijangportal.bnm.gov.my/openapi
+- Prompt construction if required
+- Decide loader, vector db, embeddings 
+- App development
 .
