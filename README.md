@@ -99,8 +99,8 @@ This GenAI app will significantly simplify how individuals and businesses intera
               |
               v
 +------------------------+                  +----------------------------+
-|    LlamaIndex          |---------->       |   Indexed Financial Data   |
-|  (Retrieves Data)      |                  |  (Historical, Real-Time)   |
+|    LlamaIndex          |------------>     |   Indexed Financial Data   |
+|  (Retrieves Data)      |<------------     |  (Historical, Real-Time)   |
 +------------------------+                  +----------------------------+
               |
               v
