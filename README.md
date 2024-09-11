@@ -1,12 +1,12 @@
-**Abstract**
+## Abstract
 This GenAI app leverages Retrieval-Augmented Generation (RAG), LlamaIndex, and Streamlit to offer users an intuitive platform for querying real-time financial data from Bank Negara Malaysia (BNM). By combining these technologies, the app allows users to access live exchange rates, interest rates, gold prices, and financial alerts using natural language. It also offers interactive data visualizations and historical trends, making it useful for both the general public and financial professionals. This tool simplifies complex financial insights, providing a user-friendly interface for better decision-making and financial awareness. 
 
-**Introduction**
+## Introduction
 This proposal outlines the development of a Generative AI (GenAI) application that combines Retrieval-Augmented Generation (RAG), LlamaIndex, and Streamlit to create an intuitive and data-driven platform. The app will utilize real-time and historical data from Bank Negara Malaysia's (BNM) OpenAPI. This app will allow users to query various financial datasets using natural language and receive contextual, data-driven responses. The key datasets include exchange rates, interest rates, and consumer alerts, which are useful for the general public, investors, and businesses.
 
 ---
 
-**Objective**
+## Objective
 The app aims to simplify how individuals access and understand financial data by using natural language queries, supported by the RAG model, which combines LlamaIndex’s ability to retrieve relevant data with language model-generated insights. The interactive user interface will be built using Streamlit, enabling users to query and visualize data seamlessly.
 
 ---
@@ -87,33 +87,33 @@ This GenAI app will significantly simplify how individuals and businesses intera
 
 ```
 +--------------------------+
-|     User Input            |
-| (Natural Language)  |
+|     User Input           |
+| (Natural Language)       |
 +---------+----------------+
               |
               v
-+----------------------------+             +---------------------------------+
-|  RAG Query Engine   |<----------|     Local Data Storage     |
-| (Retrieval + LLM)       |              | (Financial Datasets: FX,  |
-+----------------------------+              |  Interest Rates, etc.)        |
++----------------------------+             +----------------------------+
+|  RAG Query Engine          |<------------|     Local Data Storage     |
+| (Retrieval + LLM)          |             | (Financial Datasets: FX,   |
++----------------------------+             |  Interest Rates, etc.)     |
               |
               v
-+------------------------+                  +---------------------------------+
-|    LlamaIndex        |---------->    |   Indexed Financial Data   |
-|  (Retrieves Data)  |                   |  (Historical, Real-Time)     |
-+------------------------+                  +----------------------------------+
++------------------------+                  +----------------------------+
+|    LlamaIndex          |---------->       |   Indexed Financial Data   |
+|  (Retrieves Data)      |                  |  (Historical, Real-Time)   |
++------------------------+                  +----------------------------+
               |
               v
-+---------------------------+ 
++----------------------+ 
 | LLM Response         |
-| (Data-driven Output)|
-+---------------------------+
+| (Data-driven Output) |
++----------------------+
              |
              v
 +-------------------------+
 |  Streamlit UI           |
-| (Interactive Display|
-|   & Visualizations)  |
+| (Interactive Display    |
+|   & Visualizations)     |
 +-------------------------+
 ```
 **To-do**
