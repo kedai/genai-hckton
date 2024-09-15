@@ -1,0 +1,9 @@
+streamlit
+pypdf2
+charset_normalizer
+langchain-community
+langchain
+langchain-ollama
+faiss-cpu
+huggingface-hub
+sentence-transformers
