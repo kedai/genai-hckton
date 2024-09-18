@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize Ollama LLM
-llm = ChatOllama(model="phi3.5")
+llm = ChatOllama(model="llama3.1")
 
 @tool
 def tool_get_all_rates(input: str) -> str:
