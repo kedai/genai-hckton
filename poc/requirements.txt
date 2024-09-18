@@ -1,5 +1,7 @@
 streamlit
 pypdf2
+pypdf
+matplotlib
 charset_normalizer
 langchain-community
 langchain
