@@ -50,6 +50,7 @@ class CustomPDFLoader:
         try:
             # Load the PDF and extract pages as Document objects
             documents = self.loader.load_and_split()
+            print(documents)
             logger.info(f"Successfully loaded PDF: {self.file_path} with {len(documents)} pages.")
             return documents
         except Exception as e:
