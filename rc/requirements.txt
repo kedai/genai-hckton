@@ -1,0 +1,10 @@
+streamlit
+langchain
+PyMuPDF
+camelot-py[cv]
+pytesseract
+transformers
+stanza
+numpy
+sentence-transformers
+langchain-community

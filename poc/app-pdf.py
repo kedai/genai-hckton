@@ -77,7 +77,8 @@ def load_resources(storage: str, extensions: list, file_directory: str):
     """
     # Initialize HuggingFace embeddings model
     try:
-        embeddings_model = HuggingFaceEmbeddings(model_name="sentence-transformers/distilbert-base-nli-mean-tokens")
+        embeddings_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+        #embeddings_model = HuggingFaceEmbeddings(model_name="sentence-transformers/distilbert-base-nli-mean-tokens")
         logger.info("HuggingFace Embeddings model initialized successfully.")
     except Exception as e:
         st.error(f"Error initializing HuggingFace Embeddings: {e}")
