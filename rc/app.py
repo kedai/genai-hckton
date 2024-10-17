@@ -1,5 +1,4 @@
 import os
-import time
 import io
 import json
 import streamlit as st
@@ -8,32 +7,45 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from langchain.agents import initialize_agent, Tool
-import fitz  # PyMuPDF for advanced PDF handling
-import camelot  # For table extraction
-import pytesseract  # For OCR on images and diagrams
+import fitz
+import camelot
+import pytesseract
 from PIL import Image
-from transformers import pipeline  # For summarization and intent analysis
+from transformers import pipeline
 import stanza
-import numpy as np
+import logging
+from pathlib import Path
+from typing import List, Dict, Optional, Tuple
 
-
-stanza.download('en')
-nlp = stanza.Pipeline('en', processors='tokenize')
-
-# Summarization and intent analysis models
-summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
-intent_classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
-
-# Constants for directories and file paths
+# Constants and initialization
 PDF_DIRECTORY = "data-pdfs"
 INDEX_DIRECTORY = "index-dir"
+EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 METADATA_FILE = "index-dir/metadata.json"
 
-# Define embedding model (HuggingFace model)
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+# Initialize Streamlit state
+if 'vectorstore' not in st.session_state:
+    st.session_state.vectorstore = None
+if 'qa_chain' not in st.session_state:
+    st.session_state.qa_chain = None
+
+# Initialize core components
 embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
+llm = ChatOllama(model="llama3.2")
+
+# Initialize stanza
+model_dir = Path.home() / "stanza_resources" / "en"
+if not model_dir.exists():
+    stanza.download('en')
+nlp = stanza.Pipeline('en', processors='tokenize')
+
+system_prompt = (
+    "You are an assistant that answers questions related to PayNet's APIs. "
+    "If you have sufficient context, provide a final, clear, and actionable answer. "
+    "If you cannot answer, provide guidance on the next steps without initiating any code generation or incomplete actions."
+)
 
 # Function to load metadata
 def load_metadata():
@@ -53,242 +65,376 @@ def save_metadata(metadata):
     with open(METADATA_FILE, 'w') as f:
         json.dump(metadata, f)
 
-# Function to load PDFs, split text, and embed the documents
-def ingest_pdfs():
-    st.write("Starting PDF ingestion...")
-    st.write("Starting PDF ingestion...")
-    metadata = load_metadata()
-    documents = []
-    st.write("Ingesting PDFs from the directory...")
-    for file_name in os.listdir(PDF_DIRECTORY):
-        if file_name.endswith(".pdf"):
-            print(file_name)
-            pdf_path = os.path.join(PDF_DIRECTORY, file_name)
-            file_metadata = metadata.get(file_name, {})
-            last_modified = os.path.getmtime(pdf_path)
-            if file_metadata.get("last_modified") == last_modified:
+class DocumentProcessor:
+    def __init__(self, index_directory: str, pdf_directory: str, embeddings):
+        self.index_directory = Path(index_directory)
+        self.pdf_directory = Path(pdf_directory)
+        self.embeddings = embeddings
+        self.summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
+        self.logger = self._setup_logger()
+
+    def _setup_logger(self) -> logging.Logger:
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        return logger
+
+    def process_image(self, image: Image.Image) -> Optional[str]:
+        """Process a single image with OCR and summarization if needed."""
+        try:
+            ocr_text = pytesseract.image_to_string(image)
+            if not ocr_text.strip():
+                return None
+
+            if len(ocr_text) > 1024:
+                return self._summarize_long_text(ocr_text)
+            return ocr_text
+        except Exception as e:
+            self.logger.error(f"Error processing image: {str(e)}")
+            return None
+
+    def _summarize_long_text(self, text: str) -> str:
+        """Summarize long text by breaking it into chunks."""
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1024, chunk_overlap=100)
+        chunks = text_splitter.split_text(text)
+        summaries = []
+
+        for chunk in chunks:
+            try:
+                summary = self.summarizer(chunk, max_length=50, min_length=25, do_sample=False)[0]['summary_text']
+                summaries.append(summary)
+            except Exception as e:
+                self.logger.error(f"Error summarizing chunk: {str(e)}")
                 continue
-            doc = fitz.open(pdf_path)
-            for page_num in range(len(doc)):
-                st.write(f"Extracting from page {page_num + 1} of {file_name}...")
-                page = doc.load_page(page_num)
-                # Extract text from the page
-                text = page.get_text()
-                if text.strip():
-                    documents.append(Document(page_content=text, metadata={"semantic_tag": "general_text"}))
-                    print("Extracted text sample:")
-                    print("\n".join(text.splitlines()[:15]))
-                else:
-                    st.write(f"No text found on page {page_num} of {file_name}")
-                # Extract tables using Camelot
-                tables = camelot.read_pdf(pdf_path, pages=str(page_num + 1))
-                if tables:
-                    print(tables)
-                    for table in tables:
-                        table_text = table.df.to_string()
-                        if len(table_text) > 1024:
-                            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1024, chunk_overlap=100)
-                            chunks = text_splitter.split_text(table_text)
-                            summaries = []
-                            for chunk in chunks:
-                                summary = summarizer(chunk, max_length=50, min_length=25, do_sample=False)[0]['summary_text']
-                                summaries.append(summary)
-                            table_summary = ' '.join(summaries)
-                        else:
-                            table_summary = summarizer(table_text, max_length=50, min_length=25, do_sample=False)[0]['summary_text']
-                        documents.append(Document(page_content=table_summary, metadata={"semantic_tag": "numerical_data"}))
 
-                # Extract images and perform OCR
-                images = page.get_images(full=True)
-                for img in images:
-                    xref = img[0]
-                    base_image = doc.extract_image(xref)
-                    image_bytes = base_image["image"]
-                    image = Image.open(io.BytesIO(image_bytes))
-                    ocr_text = pytesseract.image_to_string(image)
-                    print(ocr_text)
-                    if ocr_text.strip():
-                        if len(ocr_text) > 1024:
-                            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1024, chunk_overlap=100)
-                            chunks = text_splitter.split_text(ocr_text)
-                            summaries = []
-                            for chunk in chunks:
-                                summary = summarizer(chunk, max_length=50, min_length=25, do_sample=False)[0]['summary_text']
-                                summaries.append(summary)
-                            ocr_summary = ' '.join(summaries)
-                        else:
-                            st.write(f"No OCR text found in image on page {page_num} of {file_name}")
+        return ' '.join(summaries)
 
-            # Update metadata
-            metadata[file_name] = {"last_modified": last_modified}
+    def process_tables(self, pdf_path: str, page_num: int) -> List[Document]:
+        """Process tables from a PDF page."""
+        documents = []
+        try:
+            tables = camelot.read_pdf(str(pdf_path), pages=str(page_num + 1))
+            for table in tables:
+                table_text = table.df.to_string()
+                table_summary = self._summarize_long_text(table_text) if len(table_text) > 1024 else table_text
+                documents.append(Document(
+                    page_content=table_summary,
+                    metadata={"semantic_tag": "numerical_data"}
+                ))
+        except Exception as e:
+            self.logger.error(f"Error processing tables on page {page_num}: {str(e)}")
+        return documents
 
-    # Split documents into chunks for easier processing
-    texts = []
-    for doc in documents:
-        if len(doc.page_content.strip()) > 0:
-            nlp_doc = nlp(doc.page_content)
-            sentences = [sentence.text for sentence in nlp_doc.sentences]
-            for sent in sentences:
-                if len(sent.strip()) > 0:
-                    texts.append(Document(page_content=sent.strip(), metadata=doc.metadata))
+    def ingest_pdfs(self) -> Tuple[Optional[FAISS], List[Document]]:
+        """Main function to ingest PDFs and create vectorstore."""
+        st.write("Starting PDF ingestion...")
+        metadata = self.load_metadata()
+        documents = []
 
-    # Use embeddings to embed chunks
-    documents = [Document(page_content=t.page_content, metadata={"semantic_tag": t.metadata["semantic_tag"]}) for t in texts]
-    if documents:
-        st.write(f"Successfully ingested {len(documents)} documents.")
-        if documents:
-            vectorstore = FAISS.from_documents(documents, embeddings)
-            print("Vectorstore successfully created.")
-        else:
-            st.write("No valid documents found to create a vectorstore.")
-            vectorstore = None
-    else:
-        st.write("No valid documents found in the PDFs for embedding.")
-        vectorstore = None
-    save_metadata(metadata)
-    return vectorstore, texts
+        for file_name in os.listdir(self.pdf_directory):
+            if not file_name.endswith(".pdf"):
+                continue
 
-# Function to update the vectorstore
-def update_vectorstore(vectorstore):
-    texts = []
-    metadata = load_metadata()
-    for file_name in os.listdir(PDF_DIRECTORY):
-        pdf_path = os.path.join(PDF_DIRECTORY, file_name)
-        file_metadata = metadata.get(file_name, {})
-        last_modified = os.path.getmtime(pdf_path)
-        # Check if the document is already indexed (by comparing metadata)
-        if file_metadata.get("last_modified") == last_modified:
-            continue
-        doc = fitz.open(pdf_path)
+            pdf_path = self.pdf_directory / file_name
+            last_modified = os.path.getmtime(pdf_path)
+
+            # Skip if already processed and unchanged
+            if file_name in metadata and metadata[file_name].get("last_modified") == last_modified:
+                continue
+
+            try:
+                doc = fitz.open(pdf_path)
+                documents.extend(self._process_pdf(doc, file_name, pdf_path))
+                metadata[file_name] = {"last_modified": last_modified}
+            except Exception as e:
+                self.logger.error(f"Error processing {file_name}: {str(e)}")
+                continue
+
+        # Process all documents into sentence-level chunks
+        processed_docs = self._process_documents(documents)
+
+        if not processed_docs:
+            st.write("No valid documents found in the PDFs for embedding.")
+            return None, []
+
+        # Create and save vectorstore
+        try:
+            vectorstore = FAISS.from_documents(processed_docs, self.embeddings)
+            vectorstore.save_local(str(self.index_directory))
+            st.write(f"Successfully ingested {len(processed_docs)} documents.")
+            self.save_metadata(metadata)
+            return vectorstore, processed_docs
+        except Exception as e:
+            self.logger.error(f"Error creating vectorstore: {str(e)}")
+            return None, processed_docs
+
+    def _process_pdf(self, doc, file_name: str, pdf_path: Path) -> List[Document]:
+        """Process a single PDF document."""
         documents = []
         for page_num in range(len(doc)):
+            st.write(f"Extracting from page {page_num + 1} of {file_name}...")
             page = doc.load_page(page_num)
-            # Extract text from the page
+
+            # Extract text
             text = page.get_text()
             if text.strip():
-                documents.append({"type": "text", "content": text, "semantic_tag": "general_text"})
-            # Extract tables using Camelot
-            tables = camelot.read_pdf(pdf_path, pages=str(page_num + 1))
-            for table in tables:
-                table_summary = summarizer(table.df.to_string(), max_length=50, min_length=25, do_sample=False)[0]['summary_text']
-                documents.append({"type": "table", "content": table.df.to_json(), "summary": table_summary, "semantic_tag": "numerical_data"})
-            # Extract images and perform OCR
-            images = page.get_images(full=True)
-            for img in images:
+                documents.append(Document(
+                    page_content=text,
+                    metadata={"semantic_tag": "general_text"}
+                ))
+
+            # Process tables
+            documents.extend(self.process_tables(pdf_path, page_num))
+
+            # Process images
+            documents.extend(self._process_page_images(page, doc))
+
+        return documents
+
+    def _process_page_images(self, page, doc) -> List[Document]:
+        """Process images from a PDF page."""
+        documents = []
+        for img in page.get_images(full=True):
+            try:
                 xref = img[0]
                 base_image = doc.extract_image(xref)
                 image_bytes = base_image["image"]
                 image = Image.open(io.BytesIO(image_bytes))
-                ocr_text = pytesseract.image_to_string(image)
-                if ocr_text.strip():
-                    ocr_summary = summarizer(ocr_text, max_length=50, min_length=25, do_sample=False)[0]['summary_text']
-                    documents.append({"type": "image_ocr", "content": ocr_text, "summary": ocr_summary, "semantic_tag": "image_extracted_text"})
 
-        # Split documents into chunks for easier processing
-        texts = []
+                ocr_text = self.process_image(image)
+                if ocr_text:
+                    documents.append(Document(
+                        page_content=ocr_text,
+                        metadata={"semantic_tag": "image_extracted_text"}
+                    ))
+            except Exception as e:
+                self.logger.error(f"Error processing image: {str(e)}")
+                continue
+        return documents
+
+    def _process_documents(self, documents: List[Document]) -> List[Document]:
+        """Process documents into sentence-level chunks."""
+        processed_docs = []
         for doc in documents:
-            if doc["type"] == "text":
-                # Use Stanza to process the text and split by sentences
-                nlp_doc = nlp(doc["content"])
-                sentences = [sentence.text for sentence in nlp_doc.sentences]
-                for sent in sentences:
-                    if len(sent.strip()) > 0:
-                        texts.append({"content": sent.strip(), "semantic_tag": doc["semantic_tag"]})
-            else:
-                # For tables and OCR, use summaries for chunking
-                texts.append({"content": doc["summary"], "semantic_tag": doc["semantic_tag"]})
+            if not doc.page_content.strip():
+                continue
 
-        new_documents = [Document(page_content=t["content"], metadata={"semantic_tag": t["semantic_tag"]}) for t in texts]
-        if new_documents:
-            vectorstore.add_documents(new_documents)
+            try:
+                nlp_doc = nlp(doc.page_content)
+                for sentence in nlp_doc.sentences:
+                    if sentence.text.strip():
+                        processed_docs.append(Document(
+                            page_content=sentence.text.strip(),
+                            metadata={"semantic_tag": doc.metadata["semantic_tag"]}
+                        ))
+            except Exception as e:
+                self.logger.error(f"Error processing document text: {str(e)}")
+                continue
+
+        return processed_docs
+
+    def load_metadata(self) -> Dict:
+        """Load metadata from file."""
+        metadata_file = self.index_directory / "metadata.json"
+        if metadata_file.exists():
+            with open(metadata_file, 'r') as f:
+                return json.load(f)
+        return {}
+
+    def save_metadata(self, metadata: Dict):
+        """Save metadata to file."""
+        metadata_file = self.index_directory / "metadata.json"
+        self.index_directory.mkdir(parents=True, exist_ok=True)
+        with open(metadata_file, 'w') as f:
+            json.dump(metadata, f)
+
+
+
+# Initialize document processor
+
+doc_processor = DocumentProcessor(INDEX_DIRECTORY, PDF_DIRECTORY, embeddings)
+
+# Try to load existing vectorstore
+if os.path.exists(INDEX_DIRECTORY):
+    try:
+        st.session_state.vectorstore = FAISS.load_local(INDEX_DIRECTORY,
+                                                        embeddings,
+                                                        allow_dangerous_deserialization=True)
+        # Initialize QA chain with loaded vectorstore
+        st.session_state.qa_chain = RetrievalQA.from_chain_type(
+            llm=llm,
+            chain_type="stuff",
+            retriever=st.session_state.vectorstore.as_retriever(),
+            return_source_documents=True
+        )
+    except Exception as e:
+        st.error(f"Error loading existing index: {str(e)}")
+
+# PDF Ingestion Button
+if st.button("Ingest PDFs"):
+    with st.spinner("Processing PDFs..."):
+        vectorstore, documents = doc_processor.ingest_pdfs()
+        if vectorstore is not None:
+            st.session_state.vectorstore = vectorstore
+            # Update QA chain with new vectorstore
+            st.session_state.qa_chain = RetrievalQA.from_chain_type(
+                llm=llm,
+                chain_type="stuff",
+                retriever=vectorstore.as_retriever(),
+                return_source_documents=True
+            )
+            st.success(f"Successfully processed {len(documents)} documents!")
         else:
-            st.write("No new valid documents to add to the FAISS index.")
-        # Update metadata
-        metadata[file_name] = {"last_modified": last_modified}
-    save_metadata(metadata)
-    return vectorstore, texts
+            st.error("Failed to process PDFs.")
 
-# Ollama LLM setup
-llm = ChatOllama(model="llama3.2")
 
 # Define custom tools
-# Tool for code generation (e.g., generating API call examples)
-def generate_code_snippet(query):
-    # Here, a simple mockup code generation
-    return f"# Example API Call based on query: '{query}'\nimport requests\nresponse = requests.get('https://api.example.com/resource')\nprint(response.json())"
+# Enhanced tool definitions with context preservation
+def generate_code_snippet(query_with_context: str) -> str:
+    """Generate code snippets while preserving context from retrieved documents."""
+    # Split the input to separate query from context
+    parts = query_with_context.split('Context:', 1)
+    query = parts[0].strip()
+    context = parts[1].strip() if len(parts) > 1 else ""
 
-# Tool for extracting detailed API information
-def extract_api_details(query):
-    return "This is a mockup API detail extraction for query: " + query
+    # Generate code example based on both query and context
+    code_example = f"""# Code example based on the following context:
+# {context}
 
-# Define tools
+import requests
+
+def handle_paynet_api():
+    # Implement best practices based on known issues:
+    # 1. Avoid load testing in sandbox
+    # 2. Check backward compatibility when updating
+
+    try:
+        response = requests.get('https://api.paynet.example/resource')
+        return response.json()
+    except Exception as e:
+        return None"""
+
+    return code_example
+
+def extract_api_details(query_with_context: str) -> str:
+    """Extract and enhance API details while preserving context."""
+    # Split the input to separate query from context
+    parts = query_with_context.split('Context:', 1)
+    query = parts[0].strip()
+    context = parts[1].strip() if len(parts) > 1 else ""
+
+    # Format and enhance the context
+    enhanced_details = f"""Based on the provided information:
+
+{context}
+
+Additional API Usage Recommendations:
+1. Always follow the documented best practices
+2. Implement proper error handling
+3. Monitor API responses for any issues
+4. Keep your API implementation up to date"""
+
+    return enhanced_details
+
+def enhance_response(query_with_context: str) -> str:
+    """Enhance the response by preserving and structuring the context."""
+    # Split the input to separate query from context
+    parts = query_with_context.split('Context:', 1)
+    query = parts[0].strip()
+    context = parts[1].strip() if len(parts) > 1 else ""
+
+    # Structure and enhance the response
+    enhanced_response = f"""Based on the retrieved information and analysis:
+
+KEY FINDINGS:
+{context}
+
+RECOMMENDATIONS:
+1. Review and address each identified issue:
+   - Carefully consider the points mentioned in the context
+   - Implement appropriate solutions for each issue
+
+2. Best Practices to Follow:
+   - Follow official documentation guidelines
+   - Implement proper error handling
+   - Regular testing and monitoring
+   - Keep systems up to date
+
+ADDITIONAL CONSIDERATIONS:
+- Document any changes or implementations
+- Monitor system performance
+- Maintain security best practices
+- Regular review and updates
+
+For complete guidelines and best practices, please consult the official documentation."""
+
+    return enhanced_response
+
+# Define enhanced tools
 tools = [
     Tool(
         name="Code Generator",
         func=generate_code_snippet,
-        description="Generate code snippets related to the API documentation."
+        description="Generate code snippets related to the API documentation while considering the context."
     ),
     Tool(
         name="API Detail Extractor",
         func=extract_api_details,
-        description="Extract detailed API information such as parameters, endpoints, etc."
+        description="Extract and enhance detailed API information such as parameters, endpoints, etc."
+    ),
+    Tool(
+        name="Response Enhancer",
+        func=enhance_response,
+        description="Enhance and structure the response with detailed context and recommendations."
     )
 ]
 
-# Initialize an agent with tools and ChatOllama model
-agent = initialize_agent(tools, llm, agent="zero-shot-react-description", verbose=True, handle_parsing_errors=True)
+# Initialize agent
+agent = initialize_agent(
+    tools,
+    llm,
+    agent="zero-shot-react-description",
+    verbose=True,
+    handle_parsing_errors=True,
+    max_iterations=3,
+    early_stopping_method="generate"
+)
 
-# Setting up the retrieval-based QA chain
-st.set_page_config(page_title="RAG Application using LangChain, Ollama, and Streamlit")
-
-st.title("RAG Application with Langchain and Streamlit")
-st.write("This app uses an RAG approach to answer questions from PDFs stored in a directory.")
-
-# Initial vectorstore creation
-st.sidebar.header("Ingestion Settings")
-update_index = st.sidebar.button("Update Index")
-
-if update_index:
-    st.write("Updating vector store, please wait...")
-    vectorstore, texts = ingest_pdfs()
-    # Optionally save your index to disk to make it persistent
-    ensure_index_directory()
-    if vectorstore is not None:
-        vectorstore.save_local(INDEX_DIRECTORY)
-        st.write("Vector store updated!")
-    else:
-        st.write("Vectorstore could not be created due to lack of valid documents.")
-elif os.path.exists(os.path.join(INDEX_DIRECTORY, 'index.faiss')):
-    st.write("Loading existing vector store...")
-    vectorstore = FAISS.load_local(INDEX_DIRECTORY, embeddings, allow_dangerous_deserialization=True)
-    print("Vectorstore successfully loaded from disk.", vectorstore)
-else:
-    st.write("No existing index found. Please run the ingestion process to create a new vector store.")
-    vectorstore = None
-    # Update vectorstore only if explicitly requested
-
-
-# Creating retrieval-based QA chain
-if vectorstore is not None:
-    qa_chain = RetrievalQA.from_chain_type(llm, retriever=vectorstore.as_retriever())
-else:
-    qa_chain = None
-
-# User input for questions
+# Question-answering interface
 user_query = st.text_input("Ask a question about the PDF documents or request a tool:")
-if user_query and qa_chain is not None:
-    # Retrieve relevant documents and generate an answer using the QA chain
-    with st.spinner("Fetching answer..."):
-        retrieved_answer = qa_chain.invoke(user_query)
-        st.write("Retrieved context:")
-        st.write(retrieved_answer)
-        # Use the agent to generate an enriched response based on the retrieved context
-        try:
-            answer = agent.invoke(user_query + ' Context: ' + retrieved_answer['result'])
-        except ValueError as e:
-            st.write("An error occurred while parsing the output. Retrying...")
-            answer = "Unable to generate a response at the moment, please try again."
-        st.write("Final Answer:")
-        st.write(answer)
 
-st.sidebar.write("Additional settings and utilities coming soon...")
+if user_query:
+    if st.session_state.qa_chain is None:
+        st.warning("Please ingest PDFs first by clicking the 'Ingest PDFs' button above.")
+    else:
+        with st.spinner("Fetching answer..."):
+            # try:
+                # Get answer from QA chain
+            qa_response = st.session_state.qa_chain({"query": user_query})
+
+            # Display source documents
+            st.subheader("Retrieved Context:")
+            for doc in qa_response.get("source_documents", []):
+                st.write(doc.page_content)
+                st.write("---")
+
+            # Use the enhanced agent to generate a comprehensive response
+            enhanced_prompt = f"{system_prompt}\n\n {user_query} Context: {qa_response['result']}"
+            enhanced_response = agent.invoke({
+                "input": enhanced_prompt,
+                "tool": "Response Enhancer"
+            })
+
+            st.subheader("Enhanced Answer:")
+            st.write(enhanced_response)
+            #st.write(enhanced_response.get('output', enhanced_response))
+
+            # except Exception as e:
+            #     st.error(f"An error occurred: {str(e)}")
+            #     st.write("Falling back to simple response...")
+            #     st.write(qa_response.get('result', "No answer available"))
+
+st.write("This app uses an RAG approach to answer questions from PDFs stored in a directory.")
