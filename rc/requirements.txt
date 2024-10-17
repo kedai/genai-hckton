@@ -1,10 +1,14 @@
-streamlit
+langchain-ollama
 langchain
 PyMuPDF
 camelot-py[cv]
 pytesseract
+PyPDF2<3.0
 transformers
 stanza
 numpy
 sentence-transformers
 langchain-community
+streamlit
+langchain-huggingface
+faiss-cpu
