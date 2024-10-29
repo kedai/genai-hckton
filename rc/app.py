@@ -33,7 +33,8 @@ if 'qa_chain' not in st.session_state:
 
 # Initialize core components
 embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
-llm = ChatOllama(model="llama3.2")
+llm = ChatOllama(model="phi3.5")
+#llm = ChatOllama(model="nemotron-mini")
 
 # Initialize stanza
 model_dir = Path.home() / "stanza_resources" / "en"
