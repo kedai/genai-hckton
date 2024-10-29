@@ -31,7 +31,7 @@ if 'qa_chain' not in st.session_state:
 
 # Initialize core components
 embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
-llm = ChatOllama(model="llama3.2")
+llm = ChatOllama(model="llava")
 
 # Initialize stanza
 model_dir = Path.home() / "stanza_resources" / "en"
@@ -280,7 +280,7 @@ class DocumentProcessor:
         print(f"file_name: {file_name}")
         # Extract main content (headings and paragraphs)
         contents = parser.get_contents()
-        # print(f"Contents: {' '.join(contents)}")
+        print(f"Contents: {' '.join(contents)}")
         if contents:
             documents.append(Document(
                     page_content='\n'.join(contents),
@@ -291,13 +291,13 @@ class DocumentProcessor:
         tables = parser.get_tables()
         for table in tables:
             table_content = f"Headers: {', '.join(table['headers'])}\nData: {str(table['rows'])}"
-            # print(f"Table content: {table_content}")
+            print(f"Table content: {table_content}")
             prompt = f"""
             1. summarize and annotate  the table below.
             2. if the table is a flow, list the steps clearly.
                     the table is from paynet's api reference and documentation: {table_content}"""
             table_meaning = self._ollama_prompt(self.model, prompt)
-            # print(f"Table meaning: {table_meaning}")
+            print(f"Table meaning: {table_meaning}")
             if table_content.strip():
                 documents.append(Document(
                     page_content=table_meaning,
@@ -410,11 +410,11 @@ For complete guidelines, please consult the official documentation."""
 
 # Define tools
 tools = [
-    Tool(
-        name="Code Generator",
-        func=generate_code_snippet,
-        description="Generate code snippets related to the API documentation while considering the context."
-    ),
+#    Tool(
+#        name="Code Generator",
+#        func=generate_code_snippet,
+#        description="Generate code snippets related to the API documentation while considering the context."
+#    ),
     Tool(
         name="API Detail Extractor",
         func=extract_api_details,
