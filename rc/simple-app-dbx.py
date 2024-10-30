@@ -145,12 +145,25 @@ def add_enter_key_handler():
     components.html(
         """
         <script>
-        document.addEventListener('keydown', function(e) {
-            if (e.key == 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                document.querySelector('button[kind="primary"]').click();
+        // Wait for the page to fully load
+        const setupKeyHandler = () => {
+            const textarea = document.querySelector('textarea');
+            if (textarea) {
+                textarea.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+                        e.preventDefault();
+                        const submitButton = document.querySelector('button[kind="primary"]');
+                        if (submitButton) {
+                            submitButton.click();
+                        }
+                    }
+                });
+            } else {
+                // Retry if textarea not found
+                setTimeout(setupKeyHandler, 100);
             }
-        });
+        };
+        setupKeyHandler();
         </script>
         """,
         height=0,
@@ -158,10 +171,12 @@ def add_enter_key_handler():
 
 def display_chat_interface():
     """Display the chat interface with textarea and improved button position."""
-    # Create a container for better layout control
     container = st.container()
 
     with container:
+        # Add handler before creating the textarea
+        add_enter_key_handler()
+
         user_question = st.text_area(
             "Ask a question about the PayNet API:",
             key="user_question",
@@ -169,12 +184,9 @@ def display_chat_interface():
             label_visibility="visible"
         )
 
-        # Right-align the button using columns
         _, _, col3 = st.columns([4, 1, 1])
         with col3:
             submit = st.button("Submit", type="primary", key="submit_button")
-
-    add_enter_key_handler()
 
     if submit and user_question:
         if not st.session_state.conversation_chain:
