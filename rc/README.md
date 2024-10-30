@@ -11,7 +11,7 @@
 - mkdir html
 - export secrets (get from kedai)
 - pip install -r requirements.txt
-- streamlit run simple- app- dbx.py
+- streamlit run simple-app-dbx.py
 - open browser localhost:8501
 - update index
 - can start queries
