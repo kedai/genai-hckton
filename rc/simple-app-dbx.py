@@ -4,7 +4,16 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from langchain.prompts import PromptTemplate
 from document_processor import DocumentProcessor
-from config import HTML_DIRECTORY, INDEX_DIRECTORY, embeddings, llm
+from config import (
+    HTML_DIRECTORY,
+    INDEX_DIRECTORY,
+    embeddings,
+    llm,
+    VECTOR_SEARCH_INDEX_NAME,
+    VECTOR_SEARCH_ENDPOINT_NAME,
+    vector_store
+)
+
 # Conversation prompt template
 CONVERSATION_PROMPT = PromptTemplate(
     template="""You are a helpful assistant for PayNet's API documentation. Use the following context and chat history to provide accurate, relevant answers.
@@ -45,7 +54,12 @@ if 'conversation_chain' not in st.session_state:
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 if 'doc_processor' not in st.session_state:
-    st.session_state.doc_processor = DocumentProcessor(INDEX_DIRECTORY, HTML_DIRECTORY, embeddings, llm)
+    st.session_state.doc_processor = DocumentProcessor(
+        html_directory=HTML_DIRECTORY,
+        index_directory=INDEX_DIRECTORY,
+        embeddings=embeddings,
+        llm=llm
+    )
 
 def main():
     st.title("PayNet API Documentation Assistant")

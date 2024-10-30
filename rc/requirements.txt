@@ -12,3 +12,5 @@ langchain-community
 streamlit
 langchain-huggingface
 faiss-cpu
+python-dotenv
+langchain-databricks==0.40
