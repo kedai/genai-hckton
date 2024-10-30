@@ -5,7 +5,7 @@ import stanza
 from typing import Optional, Tuple
 import streamlit as st
 from langchain.embeddings import HuggingFaceEmbeddings
-from langchain_ollama import ChatOllama
+from dbx_chat import DatabricksChatModel
 from langchain_databricks import DatabricksVectorSearch
 from databricks.sdk import WorkspaceClient
 import logging
@@ -29,7 +29,20 @@ EMBEDDING_DIMENSION = 768
 
 # Model Configuration
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-LLM_MODEL_NAME = "llama3.2"
+DATABRICKS_LLM_ENDPOINT = os.getenv("DATABRICKS_LLM_ENDPOINT")
+DATABRICKS_LLM_API_TOKEN = DATABRICKS_TOKEN
+
+#configured DATABRICKS_LLM_ENDPOINT
+# https://dbc-477f1b3e-3130.cloud.databricks.com/serving-endpoints/databricks-mixtral-8x7b-instruct/invocations ==> mixtral
+# https://dbc-477f1b3e-3130.cloud.databricks.com/serving-endpoints/databricks-dbrx-instruct/invocations ==> dbrx
+# https://dbc-477f1b3e-3130.cloud.databricks.com/serving-endpoints/databricks-meta-llama-3-1-405b-instruct/invocations ==> meta-llama-3.1-405
+
+
+# Initialize empty global variables
+embeddings = None
+nlp = None
+workspace_client = None
+vector_store = None
 
 class ConfigurationError(Exception):
     """Custom exception for configuration errors"""
@@ -38,10 +51,14 @@ class ConfigurationError(Exception):
 def validate_databricks_config() -> Tuple[bool, Optional[str]]:
     """Validate Databricks configuration settings."""
     missing_vars = []
-    if not DATABRICKS_HOST:
-        missing_vars.append("DATABRICKS_HOST")
-    if not DATABRICKS_TOKEN:
-        missing_vars.append("DATABRICKS_TOKEN")
+    for var_name, var_value in {
+        "DATABRICKS_HOST": DATABRICKS_HOST,
+        "DATABRICKS_TOKEN": DATABRICKS_TOKEN,
+        "DATABRICKS_LLM_ENDPOINT": DATABRICKS_LLM_ENDPOINT,
+        "DATABRICKS_LLM_API_TOKEN": DATABRICKS_LLM_API_TOKEN
+    }.items():
+        if not var_value:
+            missing_vars.append(var_name)
 
     if missing_vars:
         return False, f"Missing environment variables: {', '.join(missing_vars)}"
@@ -68,6 +85,8 @@ def init_databricks_client() -> Optional[WorkspaceClient]:
         st.code("""
         export DATABRICKS_HOST="your-workspace-url"
         export DATABRICKS_TOKEN="your-access-token"
+        export DATABRICKS_LLM_ENDPOINT="your-llm-endpoint"
+        export DATABRICKS_LLM_API_TOKEN="your-llm-api-token"
         """)
         return None
 
@@ -118,12 +137,22 @@ def init_vector_store(embeddings) -> Optional[DatabricksVectorSearch]:
         st.error(f"Failed to initialize Vector Search: {str(e)}")
         return None
 
-def init_models():
-    """Initialize all required models and clients with error handling."""
+def create_llm():
+    """Create and return a new LLM instance."""
+    return DatabricksChatModel(
+        endpoint_url=DATABRICKS_LLM_ENDPOINT,
+        api_token=DATABRICKS_LLM_API_TOKEN,
+        temperature=0.0,
+        max_tokens=1000
+    )
+
+def init_components():
+    """Initialize all required components with error handling."""
+    global embeddings, nlp, workspace_client, vector_store
+
     try:
         # Initialize base models
         embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
-        llm = ChatOllama(model=LLM_MODEL_NAME)
         nlp = init_stanza()
 
         # Initialize Databricks components with validation
@@ -135,27 +164,16 @@ def init_models():
         else:
             raise ConfigurationError("Failed to initialize Databricks client")
 
-        return embeddings, llm, nlp, workspace_client, vector_store
+        return True
 
     except ConfigurationError as e:
         logger.error(f"Configuration error: {e}")
         st.error(f"Configuration error: {str(e)}")
-        return None, None, None, None, None
+        return False
     except Exception as e:
         logger.error(f"Unexpected error during initialization: {e}")
         st.error(f"Unexpected error during initialization: {str(e)}")
-        return None, None, None, None, None
+        return False
 
-# Global initialization with error handling
-try:
-    embeddings, llm, nlp, workspace_client, vector_store = init_models()
-    if not all([embeddings, llm, nlp, workspace_client, vector_store]):
-        st.warning("Some components failed to initialize. The application may have limited functionality.")
-        logger.warning("Some components failed to initialize")
-except Exception as e:
-    logger.error(f"Error during initialization: {e}")
-    st.error(f"Error during initialization: {str(e)}")
-    st.error("The application may not function correctly. Please check the configuration.")
-    # Provide fallback values to allow partial functionality
-    embeddings, llm, nlp = None, None, None
-    workspace_client, vector_store = None, None
+# Initialize components
+init_components()
