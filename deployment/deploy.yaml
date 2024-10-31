@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamlit-app
+  labels:
+    app: streamlit-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: streamlit-app
+  template:
+    metadata:
+      labels:
+        app: streamlit-app
+    spec:
+      containers:
+      - name: streamlit-container
+        image: kemilioo/genai:v27  # Replace with the Docker image name
+        ports:
+        - containerPort: 8501
+        env:
+        - name: PDF_DIRECTORY
+          value: "/app/data-pdfs"  # Path to PDFs within the container
+        - name: INDEX_DIRECTORY
+          value: "/app/index-dir-html"  # Directory for index storage
+        - name: DB_HOST
+          value: "https://XXX.cloud.databricks.com"
+        - name: DB_CLIENT_SECRET
+          value: "XXX"
+        - name: DATABRICKS_ACCOUNT_ID
+          value: "https://XXX.cloud.databricks.com"
+        - name: DV_VS
+          value: "XXX-vectorstore"
+        
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamlit-service
+spec:
+  selector:
+    app: streamlit-app
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8501
+  type: LoadBalancer

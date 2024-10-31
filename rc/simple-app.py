@@ -3,10 +3,8 @@ import streamlit as st
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 from langchain.prompts import PromptTemplate
-
 from document_processor import DocumentProcessor
 from config import HTML_DIRECTORY, INDEX_DIRECTORY, embeddings, llm
-
 # Conversation prompt template
 CONVERSATION_PROMPT = PromptTemplate(
     template="""You are a helpful assistant for PayNet's API documentation. Use the following context and chat history to provide accurate, relevant answers.
